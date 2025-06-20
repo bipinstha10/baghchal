@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Baghchal Game - Modern UI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        body { font-family: 'Inter', sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: linear-gradient(135deg, #f0f4f8 0%, #d9e2ec 100%); margin: 0; padding: 20px; box-sizing: border-box; }
+        .game-container { background-color: #ffffff; border-radius: 20px; box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15), 0 5px 15px rgba(0, 0, 0, 0.1); padding: 35px; display: flex; flex-direction: row; gap: 30px; align-items: center; max-width: 95%; width: fit-content; text-align: center; border: 1px solid #e0e7eb; transition: transform 0.3s ease-in-out; }
+        .game-container:hover { transform: translateY(-5px); }
+        .game-main-content { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
+        .game-title { font-size: 2.5rem; font-weight: 800; color: #2c3e50; margin-bottom: 25px; letter-spacing: -0.5px; text-shadow: 1px 1px 2px rgba(0,0,0,0.05); }
+        canvas { background-color: #f8fafc; border-radius: 12px; border: 3px solid #cbd5e1; touch-action: manipulation; width: 100%; max-width: 400px; height: auto; box-shadow: inset 0 2px 5px rgba(0,0,0,0.05); }
+        .game-sidebar { background-color: #f0f4f8; border-radius: 15px; padding: 25px; width: 250px; display: flex; flex-direction: column; gap: 20px; box-shadow: inset 0 2px 8px rgba(0,0,0,0.05); border: 1px solid #d9e2ec; }
+        .message-box { background-color: #e3f2fd; color: #1a202c; padding: 15px; border-radius: 10px; font-size: 1rem; font-weight: 600; min-height: 90px; display: flex; flex-direction: column; justify-content: center; align-items: center; width: 100%; box-sizing: border-box; word-break: break-word; text-align: center; border: 1px solid #90caf9; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08); line-height: 1.4; }
+        .button-group { display: flex; flex-direction: column; gap: 15px; width: 100%; }
+        button { background: linear-gradient(180deg, #4299e1 0%, #2b6cb0 100%); color: white; padding: 18px 35px; border: none; border-radius: 10px; font-size: 1.2rem; font-weight: 700; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 6px 15px rgba(0, 0, 0, 0.2); text-transform: uppercase; letter-spacing: 0.5px; position: relative; overflow: hidden; z-index: 1; width: 100%; }
+        button:before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 255, 255, 0.1); transition: transform 0.4s ease; transform: scaleX(0); transform-origin: left; z-index: -1; }
+        button:hover:before { transform: scaleX(1); }
+        button:hover { background: linear-gradient(180deg, #2b6cb0 0%, #4299e1 100%); transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25); }
+        button:active { transform: translateY(0); box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15); }
+        button:disabled { background: #cbd5e1; color: #a0aec0; cursor: not-allowed; box-shadow: none; transform: none; opacity: 0.8; }
+        @media (max-width: 850px) {
+            .game-container { flex-direction: column; align-items: center; padding: 25px; gap: 25px; max-width: 100%; width: fit-content; }
+            .game-sidebar { width: 100%; max-width: 400px; }
+            .game-title { font-size: 2rem; margin-bottom: 20px; }
+            .message-box { font-size: 1rem; padding: 15px; min-height: 80px; }
+            button { padding: 12px 20px; font-size: 1.1rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="game-main-content">
+            <h1 class="game-title">Baghchal</h1>
+            <canvas id="gameCanvas"></canvas>
+        </div>
+        <div class="game-sidebar">
+            <div id="messageBox" class="message-box">Connecting to server...</div>
+            <div class="button-group">
+                <button id="resetButton" disabled>Reset Game</button>
+                <button id="undoButton" disabled>Undo Move</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // --- THIS IS THE MODIFIED SCRIPT SECTION ---
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const messageBox = document.getElementById('messageBox');
+        const resetButton = document.getElementById('resetButton');
+        const undoButton = document.getElementById('undoButton');
+        
+        // --- NETWORKING SETUP ---
+        const socket = io();
+        let playerRole = '';
+        let room = '';
+        let selectedPiece = null; // Simplified selection state for the client
+
+        // --- GAME STATE & UI CONSTANTS ---
+        let gameState = {}; // This will be synced from the server
+        let gameOver = false;
+        
+        const CELL_SIZE = 80;
+        const CANVAS_WIDTH = 5 * CELL_SIZE;
+        const CANVAS_HEIGHT = 5 * CELL_SIZE;
+        canvas.width = CANVAS_WIDTH;
+        canvas.height = CANVAS_HEIGHT;
+
+        const TIGER_COLOR = '#e67e22';
+        const GOAT_COLOR = '#27ae60';
+        const SELECTED_COLOR = '#3498db';
+        const BOARD_LINE_COLOR = '#7f8c8d';
+        const BOARD_POINT_COLOR = '#34495e';
+
+        const tigerImage = new Image();
+        const goatImage = new Image();
+        tigerImage.src = `data:image/svg+xml;base64,${btoa(`<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="100" height="100" fill="transparent"/><circle cx="50" cy="50" r="45" fill="${TIGER_COLOR}"/><path d="M40 25 L35 35 M60 25 L65 35 M30 45 L40 50 M70 45 L60 50" stroke="rgba(0,0,0,0.4)" stroke-width="3" stroke-linecap="round"/><path d="M30 20 L40 30 L45 15 Z" fill="#b95d10"/><path d="M70 20 L60 30 L55 15 Z" fill="#b95d10"/><circle cx="50" cy="55" r="15" fill="#f5cba7"/><path d="M47 50 L53 50 L50 55 Z" fill="black"/><circle cx="40" cy="40" r="5" fill="black"/><circle cx="60" cy="40" r="5" fill="black"/></svg>`)}`;
+        goatImage.src = `data:image/svg+xml;base64,${btoa(`<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="100" height="100" fill="transparent"/><circle cx="50" cy="50" r="45" fill="${GOAT_COLOR}"/><path d="M35 50 Q50 40 65 50 Q50 65 35 50 Z" fill="#f0f0f0"/><path d="M25 45 L35 40 L40 55 Z" fill="#d0d0d0"/><path d="M75 45 L65 40 L60 55 Z" fill="#d0d0d0"/><path d="M30 35 Q35 20 40 35 Z" fill="#8b4513"/><path d="M70 35 Q65 20 60 35 Z" fill="#8b4513"/><circle cx="42" cy="48" r="4" fill="black"/><circle cx="58" cy="48" r="4" fill="black"/></svg>`)}`;
+
+        // --- SOCKET.IO EVENT HANDLERS ---
+        socket.on('waiting', (message) => {
+            displayMessage(message);
+        });
+
+        socket.on('gameStart', (data) => {
+            playerRole = data.role;
+            room = data.room;
+            resetButton.disabled = false;
+            undoButton.disabled = false;
+            canvas.addEventListener('click', handleClick);
+            updateLocalState(data.state, null);
+        });
+        
+        socket.on('gameStateUpdate', (data) => {
+            updateLocalState(data.state, data.winner);
+        });
+
+        socket.on('invalidMove', (data) => {
+            displayMessage(data.message, 'Please try again.', '');
+            selectedPiece = null; // Deselect on invalid move
+            updateBoard(); // Redraw to remove selection highlight
+        });
+
+        socket.on('opponentDisconnected', (message) => {
+            gameOver = true;
+            displayMessage(message, 'Game Over.', 'Please refresh to play again.');
+            resetButton.disabled = true;
+            undoButton.disabled = true;
+            canvas.removeEventListener('click', handleClick);
+        });
+        
+        // --- HELPER FUNCTIONS ---
+        function displayMessage(msg1, msg2 = '', msg3 = '') {
+            messageBox.innerHTML = `${msg1}<br>${msg2}<br>${msg3}`;
+        }
+        
+        function updateLocalState(newState, winner) {
+            gameState = newState;
+            gameOver = !!winner;
+            selectedPiece = null; // Reset selection on turn change
+            updateBoard();
+            
+            if (winner) {
+                displayMessage(`${winner} wins!`, '', 'Click Reset to start a new game.');
+                canvas.removeEventListener('click', handleClick); // Disable clicks
+            } else {
+                updateTurnMessage();
+            }
+        }
+        
+        function updateTurnMessage() {
+            const isMyTurn = (playerRole === gameState.turn);
+            const turnText = isMyTurn ? "Your turn" : "Opponent's turn";
+            
+            if (gameState.turn === 'G') {
+                if (gameState.goats_placed < 20) {
+                    displayMessage(`You are: ${playerRole === 'G' ? 'Goat' : 'Tiger'}`, `Goats to place: ${20 - gameState.goats_placed}`, turnText);
+                } else {
+                    displayMessage(`You are: ${playerRole === 'G' ? 'Goat' : 'Tiger'}`, `Goats killed: ${gameState.goats_killed}`, turnText);
+                }
+            } else { // Tiger's turn
+                 displayMessage(`You are: ${playerRole === 'T' ? 'Tiger' : 'Goat'}`, `Goats killed: ${gameState.goats_killed}`, turnText);
+            }
+        }
+
+        // --- DRAWING FUNCTIONS (Unchanged from original) ---
+        function is_even(number) { return number % 2 === 0; }
+        
+        function drawBoard() {
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            ctx.strokeStyle = BOARD_LINE_COLOR;
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 5; i++) {
+                for (let j = 0; j < 5; j++) {
+                    const x = j * CELL_SIZE + CELL_SIZE / 2;
+                    const y = i * CELL_SIZE + CELL_SIZE / 2;
+                    if (j < 4) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo((j + 1) * CELL_SIZE + CELL_SIZE / 2, y); ctx.stroke(); }
+                    if (i < 4) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, (i + 1) * CELL_SIZE + CELL_SIZE / 2); ctx.stroke(); }
+                    if (is_even(i + j)) {
+                        if (i < 4 && j < 4) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo((j + 1) * CELL_SIZE + CELL_SIZE / 2, (i + 1) * CELL_SIZE + CELL_SIZE / 2); ctx.stroke(); }
+                        if (i < 4 && j > 0) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo((j - 1) * CELL_SIZE + CELL_SIZE / 2, (i + 1) * CELL_SIZE + CELL_SIZE / 2); ctx.stroke(); }
+                    }
+                }
+            }
+            ctx.fillStyle = BOARD_POINT_COLOR;
+            for (let i = 0; i < 5; i++) {
+                for (let j = 0; j < 5; j++) {
+                    const x = j * CELL_SIZE + CELL_SIZE / 2;
+                    const y = i * CELL_SIZE + CELL_SIZE / 2;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
+        function drawPieces() {
+            if (!gameState.board) return;
+            const pieceSize = CELL_SIZE * 0.6;
+            const offset = (CELL_SIZE - pieceSize) / 2;
+            for (let i = 0; i < 5; i++) {
+                for (let j = 0; j < 5; j++) {
+                    const x = j * CELL_SIZE + offset;
+                    const y = i * CELL_SIZE + offset;
+                    const centerX = j * CELL_SIZE + CELL_SIZE / 2;
+                    const centerY = i * CELL_SIZE + CELL_SIZE / 2;
+                    const piece = gameState.board[i][j];
+
+                    if (piece === 'T') {
+                        ctx.drawImage(tigerImage, x, y, pieceSize, pieceSize);
+                    } else if (piece === 'G') {
+                        ctx.drawImage(goatImage, x, y, pieceSize, pieceSize);
+                    }
+                    
+                    if (selectedPiece && selectedPiece[0] === i && selectedPiece[1] === j) {
+                        ctx.beginPath();
+                        ctx.arc(centerX, centerY, CELL_SIZE / 2 - 5, 0, Math.PI * 2);
+                        ctx.strokeStyle = SELECTED_COLOR;
+                        ctx.lineWidth = 5;
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+
+        function updateBoard() {
+            drawBoard();
+            drawPieces();
+        }
+        
+        // --- EVENT HANDLERS ---
+        function handleClick(event) {
+            if (gameOver || playerRole !== gameState.turn) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            const row = Math.floor(y / (rect.height / 5));
+            const col = Math.floor(x / (rect.width / 5));
+
+            if (row < 0 || row >= 5 || col < 0 || col >= 5) return;
+
+            const clickedPiece = gameState.board[row][col];
+
+            // Goat placement phase
+            if (playerRole === 'G' && gameState.goats_placed < 20) {
+                if (clickedPiece === '.') {
+                    socket.emit('makeMove', { room, move: { start_row: row, start_col: col, end_row: row, end_col: col } });
+                }
+                return;
+            }
+
+            // Piece selection and movement phase
+            if (!selectedPiece) {
+                // Select a piece if it belongs to the current player
+                if (clickedPiece === playerRole) {
+                    selectedPiece = [row, col];
+                    updateBoard(); // Redraw to show selection
+                }
+            } else {
+                // A piece is already selected, try to move it
+                const [start_row, start_col] = selectedPiece;
+                if (clickedPiece === '.') { // Can only move to empty spots
+                    socket.emit('makeMove', { room, move: { start_row, start_col, end_row: row, end_col: col } });
+                } else {
+                    // Clicked on something else, deselect
+                    selectedPiece = null;
+                    updateBoard();
+                }
+            }
+        }
+
+        resetButton.addEventListener('click', () => socket.emit('resetGame', { room }));
+        undoButton.addEventListener('click', () => socket.emit('undoMove', { room }));
+
+        // --- INITIALIZATION ---
+        Promise.all([
+            new Promise(resolve => tigerImage.onload = resolve),
+            new Promise(resolve => goatImage.onload = resolve)
+        ]).then(() => {
+            updateBoard();
+        }).catch(err => {
+            console.error("Error loading images:", err);
+            updateBoard();
+        });
+        
+    </script>
+</body>
+</html>
